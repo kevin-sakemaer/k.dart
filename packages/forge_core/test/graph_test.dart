@@ -62,6 +62,13 @@ void main() {
     );
   });
 
+  test('accepts a graph with more than twelve issues', () {
+    final issues = [for (var i = 0; i < 13; i++) issue('n$i', [])];
+    final graph = validateGraph(issues);
+    expect(graph.accepted, isTrue);
+    expect(graph.issues, hasLength(13));
+  });
+
   test('ready batch keeps four issues sorted by id', () {
     final issues = [
       'e',
