@@ -1,4 +1,3 @@
-const maxIssues = 12;
 const maxOpenPullRequests = 4;
 
 final _idPattern = RegExp(r'^[a-z0-9][a-z0-9-]{0,30}$');
@@ -33,21 +32,21 @@ final class GraphValidation {
   bool get accepted => drops.isEmpty && issues.isNotEmpty;
 }
 
-GraphValidation validateGraph(List<IssueDraft> input) {
+/// [priorIds] are issue ids already accepted in an earlier milestone.
+GraphValidation validateGraph(
+  List<IssueDraft> input, {
+  Set<String> priorIds = const {},
+}) {
   final drops = <GraphDrop>[];
   final kept = <IssueDraft>[];
   final seen = <String>{};
 
   for (final issue in input) {
-    if (kept.length >= maxIssues) {
-      drops.add(GraphDrop(issue.id, 'over cap'));
-      continue;
-    }
     if (!_idPattern.hasMatch(issue.id)) {
       drops.add(GraphDrop(issue.id, 'bad id'));
       continue;
     }
-    if (!seen.add(issue.id)) {
+    if (priorIds.contains(issue.id) || !seen.add(issue.id)) {
       drops.add(GraphDrop(issue.id, 'duplicate id'));
       continue;
     }
@@ -89,7 +88,9 @@ GraphValidation validateGraph(List<IssueDraft> input) {
   final ids = kept.map((issue) => issue.id).toSet();
   final filtered = <IssueDraft>[];
   for (final issue in kept) {
-    final unknown = issue.blockedBy.where((id) => !ids.contains(id)).toList();
+    final unknown = issue.blockedBy
+        .where((id) => !ids.contains(id) && !priorIds.contains(id))
+        .toList();
     if (unknown.isNotEmpty) {
       drops.add(GraphDrop(issue.id, 'unknown blocker ${unknown.first}'));
       continue;

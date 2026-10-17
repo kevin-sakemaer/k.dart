@@ -1,4 +1,5 @@
 import 'graph.dart';
+import 'title.dart';
 
 const _datePattern = r'^(\d{4})-(\d{2})-(\d{2})$';
 
@@ -48,6 +49,83 @@ bool _isLeap(int year) {
     return false;
   }
   return year % 4 == 0;
+}
+
+/// One milestone proposed while filing an idea.
+final class MilestoneDraft {
+  const MilestoneDraft({
+    required this.title,
+    required this.dueOn,
+    required this.issues,
+  });
+
+  final String title;
+
+  /// Canonical `YYYY-MM-DD`, a GitHub timestamp, or null when undated.
+  final String? dueOn;
+  final List<IssueDraft> issues;
+}
+
+final class PlanValidation {
+  const PlanValidation({required this.milestones, required this.drops});
+
+  final List<MilestoneDraft> milestones;
+  final List<GraphDrop> drops;
+
+  bool get accepted => drops.isEmpty && milestones.isNotEmpty;
+}
+
+/// Accepts several milestones for one idea.
+///
+/// There is no per-milestone issue cap. A blocker must already exist in the
+/// same milestone or an earlier one. A bad milestone rejects the whole plan.
+PlanValidation validateMilestones(
+  List<MilestoneDraft> input, {
+  required String idea,
+}) {
+  if (input.isEmpty) {
+    return const PlanValidation(
+      milestones: [],
+      drops: [GraphDrop('', 'no issues')],
+    );
+  }
+  final drops = <GraphDrop>[];
+  final accepted = <MilestoneDraft>[];
+  final priorIds = <String>{};
+  final titles = <String>{};
+  for (final raw in input) {
+    final title = acceptMilestoneTitle(raw.title, idea: idea);
+    if (title == null) {
+      drops.add(GraphDrop(raw.title.trim(), 'bad milestone title'));
+      continue;
+    }
+    if (!titles.add(title)) {
+      drops.add(GraphDrop(title, 'duplicate milestone title'));
+      continue;
+    }
+    String? dueOn;
+    final rawDue = raw.dueOn?.trim() ?? '';
+    if (rawDue.isNotEmpty) {
+      dueOn = acceptDueDate(rawDue);
+      if (dueOn == null) {
+        drops.add(GraphDrop(title, 'bad due date'));
+        continue;
+      }
+    }
+    final graph = validateGraph(raw.issues, priorIds: priorIds);
+    if (!graph.accepted) {
+      drops.addAll(graph.drops);
+      continue;
+    }
+    accepted.add(
+      MilestoneDraft(title: title, dueOn: dueOn, issues: graph.issues),
+    );
+    priorIds.addAll(graph.issues.map((issue) => issue.id));
+  }
+  if (drops.isNotEmpty) {
+    return PlanValidation(milestones: const [], drops: drops);
+  }
+  return PlanValidation(milestones: accepted, drops: drops);
 }
 
 /// An open milestone the build workflow can choose.

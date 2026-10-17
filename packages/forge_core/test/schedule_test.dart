@@ -4,6 +4,78 @@ import 'package:test/test.dart';
 void main() {
   const today = '2026-10-18';
 
+  test('files one idea as several milestones', () {
+    final plan = validateMilestones(const [
+      MilestoneDraft(
+        title: 'Add left and right',
+        dueOn: null,
+        issues: [
+          IssueDraft(
+            id: 'left',
+            title: 'left',
+            acceptance: 'fvm dart test passes',
+            blockedBy: [],
+          ),
+          IssueDraft(
+            id: 'right',
+            title: 'right',
+            acceptance: 'fvm dart test passes',
+            blockedBy: [],
+          ),
+        ],
+      ),
+      MilestoneDraft(
+        title: 'Add both',
+        dueOn: '2026-10-20',
+        issues: [
+          IssueDraft(
+            id: 'both',
+            title: 'both',
+            acceptance: 'fvm dart test passes',
+            blockedBy: ['left', 'right'],
+          ),
+        ],
+      ),
+    ], idea: 'ship the helpers');
+    expect(plan.accepted, isTrue);
+    expect(plan.milestones.map((milestone) => milestone.title), [
+      'Add left and right',
+      'Add both',
+    ]);
+    expect(plan.milestones.last.dueOn, '2026-10-20');
+  });
+
+  test('rejects a blocker filed in a later milestone', () {
+    final plan = validateMilestones(const [
+      MilestoneDraft(
+        title: 'Add both',
+        dueOn: null,
+        issues: [
+          IssueDraft(
+            id: 'both',
+            title: 'both',
+            acceptance: 'fvm dart test passes',
+            blockedBy: ['left'],
+          ),
+        ],
+      ),
+      MilestoneDraft(
+        title: 'Add left',
+        dueOn: null,
+        issues: [
+          IssueDraft(
+            id: 'left',
+            title: 'left',
+            acceptance: 'fvm dart test passes',
+            blockedBy: [],
+          ),
+        ],
+      ),
+    ], idea: 'ship the helpers');
+    expect(plan.accepted, isFalse);
+    expect(plan.drops.single.reason, 'unknown blocker left');
+  });
+
   test('accepts a calendar date and a GitHub timestamp', () {
     expect(acceptDueDate('2026-10-18'), '2026-10-18');
     expect(acceptDueDate(' 2024-02-29T00:00:00Z '), '2024-02-29');
