@@ -1,3 +1,4 @@
+export 'src/both.dart';
 export 'src/graph.dart';
 export 'src/left.dart';
 export 'src/right.dart';
