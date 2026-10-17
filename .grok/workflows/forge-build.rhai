@@ -393,10 +393,12 @@ let push_schema = #{
 };
 let watch_schema = #{
     "type": "object",
-    "required": ["state", "detail"],
+    "required": ["state", "detail", "behind_by", "mergeable"],
     "properties": #{
         "state": #{ "type": "string", "enum": ["merged", "repair", "behind"] },
         "detail": #{ "type": "string" },
+        "behind_by": #{ "type": "integer" },
+        "mergeable": #{ "type": "string", "enum": ["MERGEABLE", "CONFLICTING", "UNKNOWN"] },
     },
 };
 let close_schema = #{
@@ -951,15 +953,19 @@ while continue_run {
         if open.pr_number == 0 {
             continue;
         }
-        let watch_prompt = "Watch pull request " + open.pr_number.to_string() + " on " + REPO + " until it merges, a check fails, or the branch is behind. "
-            + "Run `gh pr checks " + open.pr_number.to_string() + " --repo " + REPO + " --watch`. "
-            + "Then read `gh pr view " + open.pr_number.to_string() + " --repo " + REPO + " --json state,mergeStateStatus`. "
-            + "state=merged only when that view says MERGED. "
-            + "If the branch is behind and there is no conflict, run `gh pr update-branch --repo " + REPO + " " + open.pr_number.to_string() + "` and set state=behind. "
-            + "state=repair when a check failed or update-branch reports a conflict. "
-            + "detail is the stable failure text, with no timestamp. "
-            + "A pull request that is still open with green checks is not a failure: poll the view until it is MERGED or a check fails. "
-            + "Do not change files in this step.";
+        let watch_prompt = "Read pull request " + open.pr_number.to_string() + " on " + REPO + " before waiting on checks. "
+            + "Run `gh pr view " + open.pr_number.to_string() + " --repo " + REPO + " --json state,mergeable,mergeStateStatus,headRefName,baseRefName`. "
+            + "Then run `gh api repos/" + REPO + "/compare/<baseRefName>...<headRefName>` and set behind_by to the integer `.behind_by`. "
+            + "mergeable is MERGEABLE, CONFLICTING, or UNKNOWN. "
+            + "A green check does not mean the branch contains main. behind_by greater than 0 means the branch is out of date with the base branch. "
+            + "If the view state is MERGED, set state=merged, behind_by=0, and return. "
+            + "If mergeable is CONFLICTING or mergeStateStatus is DIRTY, set state=repair and do not update the branch. "
+            + "If behind_by is greater than 0 or mergeStateStatus is BEHIND, run `gh pr update-branch --repo " + REPO + " " + open.pr_number.to_string() + "`. "
+            + "If that update reports a conflict, set state=repair. Otherwise set state=behind and re-read behind_by. "
+            + "Only when behind_by is 0 and mergeable is not CONFLICTING, run `gh pr checks " + open.pr_number.to_string() + " --repo " + REPO + " --watch`. "
+            + "If a check failed, state=repair. "
+            + "If checks are green and the pull request is still open, poll the view until it is MERGED, a check fails, or behind_by becomes greater than 0. "
+            + "detail is the stable failure text, with no timestamp. Do not edit the worktree in this step.";
         watch_jobs.push(#{
             prompt: watch_prompt,
             label: "watch-" + open.local_id,
@@ -983,18 +989,21 @@ while continue_run {
             let watch = watches[windex];
             windex += 1;
             watched += 1;
-            if watch == () || watch.success != true || watch.output.state == () {
+            if watch == () || watch.success != true || watch.output.state == () || watch.output.behind_by == () || watch.output.mergeable == () {
                 finish("blocked", "could not read checks for " + open.local_id, closed);
             }
-            if watch.output.state == "merged" {
-                log("merged " + open.local_id);
-                continue;
-            }
-            if watch.output.state == "behind" {
+            let out_of_date = watch.output.behind_by > 0;
+            let conflict = watch.output.mergeable == "CONFLICTING";
+            if !conflict && (out_of_date || watch.output.state == "behind") {
+                log("out of date " + open.local_id + " behind " + watch.output.behind_by.to_string());
                 next_open.push(open);
                 continue;
             }
-            if watch.output.state != "repair" {
+            if !out_of_date && !conflict && watch.output.state == "merged" {
+                log("merged " + open.local_id);
+                continue;
+            }
+            if watch.output.state != "repair" && !conflict {
                 finish("blocked", "unexpected watch state for " + open.local_id, closed);
             }
             let detail = trimmed(watch.output.detail);
