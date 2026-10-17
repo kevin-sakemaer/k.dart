@@ -1,0 +1,22 @@
+name: test
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install the pinned Flutter SDK and test
+        run: |
+          dart pub global activate fvm 4.3.1
+          export PATH="$HOME/.pub-cache/bin:$PATH"
+          fvm install
+          fvm dart pub get
+          fvm dart analyze --fatal-infos
+          fvm dart test packages/forge_core/test packages/forge_eval/test
