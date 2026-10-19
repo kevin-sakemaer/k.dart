@@ -1,0 +1,37 @@
+name: review-gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+jobs:
+  review-gate:
+    name: review-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove review:approved after a new push
+        if: github.event.action == 'synchronize'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api -X DELETE "repos/$REPO/issues/$PR/labels/review:approved" || true
+          echo "::error::Nouveau push après la review : le label review:approved est retiré, une nouvelle review est nécessaire."
+          exit 1
+      - name: Check review labels
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          echo "Labels : $LABELS"
+          if echo "$LABELS" | grep -q '"review:changes-requested"'; then
+            echo "::error::La PR porte le label review:changes-requested."
+            exit 1
+          fi
+          if ! echo "$LABELS" | grep -q '"review:approved"'; then
+            echo "::error::La PR n'a pas le label review:approved."
+            exit 1
+          fi
+          echo "Review approuvée."
