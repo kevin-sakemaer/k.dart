@@ -1,7 +1,16 @@
-// Vérifie que chaque dépendance hébergée (`source: hosted`) de pubspec.lock
-// est publiée par un éditeur vérifié autorisé sur pub.dev.
+// Vérifie que chaque dépendance directe hébergée est publiée par un éditeur
+// vérifié autorisé sur pub.dev.
 //
-// Usage : dart run tool/check_publishers.dart [chemin/vers/pubspec.lock]
+// Les dépendances directes sont les clés `dependencies` et `dev_dependencies`
+// du pubspec.yaml racine et de chaque packages/*/pubspec.yaml. Une entrée est
+// retenue si elle n'a ni `path`, ni `git`, ni `sdk` et si pubspec.lock la
+// résout en `source: hosted`, ce qui exclut les packages du workspace. Les
+// dépendances transitives ne sont pas contrôlées.
+//
+// Le pubspec.lock d'un workspace marque toutes ses entrées en `transitive`.
+// C'est pourquoi la liste des dépendances directes est lue dans les pubspec.yaml.
+//
+// Usage : dart run tool/check_publishers.dart (depuis la racine du dépôt)
 //
 // Aucune dépendance externe : uniquement dart:io et dart:convert.
 import 'dart:convert';
@@ -10,28 +19,33 @@ import 'dart:io';
 /// Éditeurs vérifiés autorisés.
 const allowedPublishers = {'dart.dev', 'tools.dart.dev', 'labs.dart.dev'};
 
-/// Exceptions explicites : packages autorisés malgré un éditeur non listé.
-///
-/// Cette liste est vide par défaut. Toute exception ajoutée ici doit être
-/// validée au préalable par Grok Bot, avec une justification en commentaire
-/// à côté du nom du package.
-const allowedExceptions = <String>{};
-
-Future<void> main(List<String> args) async {
-  final lockPath = args.isEmpty ? 'pubspec.lock' : args.first;
-  final lockFile = File(lockPath);
+Future<void> main() async {
+  final lockFile = File('pubspec.lock');
   if (!lockFile.existsSync()) {
-    stderr.writeln('Erreur : $lockPath introuvable.');
+    stderr.writeln('Erreur : pubspec.lock introuvable à la racine.');
     exit(2);
   }
+  final hostedInLock = _hostedInLock(lockFile.readAsLinesSync());
 
-  final hosted = _hostedPackages(lockFile.readAsLinesSync());
+  final pubspecs = <File>[
+    File('pubspec.yaml'),
+    ...Directory('packages')
+        .listSync()
+        .whereType<Directory>()
+        .map((d) => File('${d.path}/pubspec.yaml'))
+        .where((f) => f.existsSync()),
+  ];
+  final direct = <String>{};
+  for (final pubspec in pubspecs) {
+    direct.addAll(_directDependencies(pubspec.readAsLinesSync()));
+  }
+  final hosted = direct.where(hostedInLock.contains).toList()..sort();
+
   final client = HttpClient();
   final offenders = <String, String>{};
   final errors = <String>[];
   try {
     for (final name in hosted) {
-      if (allowedExceptions.contains(name)) continue;
       try {
         final publisher = await _publisherOf(client, name);
         if (publisher == null || !allowedPublishers.contains(publisher)) {
@@ -45,7 +59,10 @@ Future<void> main(List<String> args) async {
     client.close(force: true);
   }
 
-  stdout.writeln('${hosted.length} packages hébergés vérifiés.');
+  stdout.writeln(
+    '${hosted.length} dépendance(s) directe(s) hébergée(s) vérifiée(s) : '
+    '${hosted.join(', ')}',
+  );
   if (errors.isNotEmpty) {
     stderr.writeln('Impossible de vérifier ${errors.length} package(s) :');
     for (final e in errors) {
@@ -62,12 +79,47 @@ Future<void> main(List<String> args) async {
     }
   }
   if (errors.isNotEmpty || offenders.isNotEmpty) exit(1);
-  stdout.writeln('OK : toutes les dépendances ont un éditeur autorisé.');
+  stdout.writeln(
+    'OK : toutes les dépendances directes ont un éditeur autorisé.',
+  );
 }
 
-/// Extrait les noms des packages `source: hosted` d'un pubspec.lock.
-List<String> _hostedPackages(List<String> lines) {
-  final result = <String>[];
+/// Noms des dépendances directes non path, git ni sdk d'un pubspec.yaml.
+Set<String> _directDependencies(List<String> lines) {
+  final result = <String>{};
+  var inSection = false;
+  String? current;
+  var excluded = false;
+  void flush() {
+    if (current != null && !excluded) result.add(current!);
+    current = null;
+  }
+
+  for (final raw in lines) {
+    final line = raw.replaceFirst(RegExp(r'\s+#.*$'), '');
+    if (line.trim().isEmpty || line.trimLeft().startsWith('#')) continue;
+    if (!line.startsWith(' ')) {
+      flush();
+      inSection = RegExp(r'^(dependencies|dev_dependencies):').hasMatch(line);
+      continue;
+    }
+    if (!inSection) continue;
+    final entry = RegExp(r'^  ([A-Za-z0-9_]+):').firstMatch(line);
+    if (entry != null) {
+      flush();
+      current = entry.group(1);
+      excluded = false;
+    } else if (RegExp(r'^\s{4,}(path|git|sdk):').hasMatch(line)) {
+      excluded = true;
+    }
+  }
+  flush();
+  return result;
+}
+
+/// Noms des packages résolus en `source: hosted` dans pubspec.lock.
+Set<String> _hostedInLock(List<String> lines) {
+  final result = <String>{};
   var inPackages = false;
   String? current;
   for (final line in lines) {
