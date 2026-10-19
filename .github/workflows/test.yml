@@ -12,6 +12,8 @@ jobs:
       - uses: dart-lang/setup-dart@v1
         with:
           sdk: stable
+      - name: Check dependency publishers
+        run: dart run tool/check_publishers.dart
       - name: Install the pinned Flutter SDK and test
         run: |
           dart pub global activate fvm 4.3.1
