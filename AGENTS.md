@@ -10,7 +10,7 @@ Monorepo Dart en pub workspaces. Flutter est épinglé dans `.fvmrc` (3.47.5). T
 
 Vérifier depuis la racine : `fvm dart analyze --fatal-infos` puis `fvm dart test packages/forge_core/test packages/forge_eval/test`.
 
-Les opérations GitHub passent par `gh` sur `kevin-sakemaer/k.dart`. L’ordre des issues est le blocked-by GitHub. Une PR se merge quand le check `test` est vert et que la branche contient `main`. Au plus quatre PR ouvertes en même temps. Pas de `.fvmrc` dans un paquet. Ne pas modifier un test pour le faire passer.
+Les opérations GitHub passent par `gh` sur `kevin-sakemaer/k.dart`. L’ordre des issues est le blocked-by GitHub. Une PR se merge automatiquement : le dev active `gh pr merge --auto --squash`, les checks requis doivent être verts, la branche doit contenir `main`, et le Reviewer pose `review:approved`. GitHub fusionne alors seul. Personne ne fusionne à la main. Au plus quatre PR ouvertes en même temps. Pas de `.fvmrc` dans un paquet. Ne pas modifier un test pour le faire passer.
 
 ## Flux de contribution et de merge
 
